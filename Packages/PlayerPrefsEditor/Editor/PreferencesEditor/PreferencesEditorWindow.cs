@@ -630,6 +630,7 @@ namespace CCG.PlayerPrefsEditor
 
             state.EditorPrefs.IncludeFilter.Active = true;
             state.EditorPrefs.IncludeFilter.Entries.Add(new FilterEntry(true, Application.identifier));
+            state.EditorPrefs.IncludeFilter.Entries.Add(new FilterEntry(false, "CCG.PlayerPrefsEditor."));
             state.EditorPrefs.ExcludeFilter.Active = true;
             state.EditorPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, "com.Unity_Technologies."));
             state.EditorPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, "Unity."));
