@@ -688,6 +688,17 @@ namespace CCG.PlayerPrefsEditor
             }
         }
 
+        private void DrawPrefsPathField(string label, string path)
+        {
+            GUILayout.BeginHorizontal();
+
+            GUILayout.Box(ImageManager.GetOsIcon(), Styles.icon);
+            GUILayout.Label(label, GUILayout.Width(70));
+            GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + path, GUILayout.MinWidth(200));
+
+            GUILayout.EndHorizontal();
+        }
+
         private void DrawFilterList(string title, FilterListState filterListState)
         {
             GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
@@ -937,21 +948,7 @@ namespace CCG.PlayerPrefsEditor
 
                 GUILayout.EndHorizontal();
 
-                GUILayout.BeginHorizontal();
-
-                GUILayout.Box(ImageManager.GetOsIcon(), Styles.icon);
-                GUILayout.Label("PlayerPrefs", GUILayout.Width(70));
-                GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + pathToPrefs, GUILayout.MinWidth(200));
-
-                GUILayout.EndHorizontal();
-
-                GUILayout.BeginHorizontal();
-
-                GUILayout.Box(ImageManager.GetOsIcon(), Styles.icon);
-                GUILayout.Label("EditorPrefs", GUILayout.Width(70));
-                GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + pathToEditorPrefs, GUILayout.MinWidth(200));
-
-                GUILayout.EndHorizontal();
+                DrawPrefsPathField("PlayerPrefs", pathToPrefs);
 
                 scrollPos = GUILayout.BeginScrollView(scrollPos);
                 DrawFilterControls(filterState.PlayerPrefs);
@@ -959,6 +956,7 @@ namespace CCG.PlayerPrefsEditor
                 userDefList.DoLayoutList();
                 serializedObject.ApplyModifiedProperties();
 
+                DrawPrefsPathField("EditorPrefs", pathToEditorPrefs);
                 DrawFilterControls(filterState.EditorPrefs);
                 serializedObject.Update();
                 editorPrefsList.DoLayoutList();
