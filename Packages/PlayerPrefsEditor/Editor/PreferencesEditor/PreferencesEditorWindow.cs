@@ -33,10 +33,12 @@ namespace CCG.PlayerPrefsEditor
         }
 
         private static string pathToPrefs = String.Empty;
+        private static string pathToEditorPrefs = String.Empty;
         private static string platformPathPrefix = @"~";
 
         private string[] userDef;
         private string[] unityDef;
+        private string[] editorPrefsDef;
         private bool showSystemGroup = false;
 
         private PreferencesEntrySortOrder sortOrder = PreferencesEntrySortOrder.None;
@@ -44,8 +46,10 @@ namespace CCG.PlayerPrefsEditor
         private SerializedObject serializedObject;
         private ReorderableList userDefList;
         private ReorderableList unityDefList;
+        private ReorderableList editorPrefsList;
 
         private SerializedProperty[] userDefListCache = new SerializedProperty[0];
+        private SerializedProperty[] editorPrefsListCache = new SerializedProperty[0];
 
         private PreferenceEntryHolder prefEntryHolder;
 
@@ -54,6 +58,7 @@ namespace CCG.PlayerPrefsEditor
         private bool moveSplitterPos = false;
 
         private PreferanceStorageAccessor entryAccessor;
+        private PreferanceStorageAccessor editorPrefsAccessor;
 
         private MySearchField searchfield;
         private string searchTxt;
@@ -67,6 +72,12 @@ namespace CCG.PlayerPrefsEditor
         {
             new TextValidator(TextValidator.ErrorType.Error, @"Invalid character detected. Only letters, numbers, space and ,.;:<>_|!§$%&/()=?*+~#-]+$ are allowed", @"(^$)|(^[a-zA-Z0-9 ,.;:<>_|!§$%&/()=?*+~#-]+$)"),
             new TextValidator(TextValidator.ErrorType.Warning, @"The given key already exist. The existing entry would be overwritten!", (key) => { return !PlayerPrefs.HasKey(key); })
+        };
+
+        private readonly List<TextValidator> editorPrefKeyValidatorList = new List<TextValidator>()
+        {
+            new TextValidator(TextValidator.ErrorType.Error, @"Invalid character detected. Only letters, numbers, space and ,.;:<>_|!§$%&/()=?*+~#-]+$ are allowed", @"(^$)|(^[a-zA-Z0-9 ,.;:<>_|!§$%&/()=?*+~#-]+$)"),
+            new TextValidator(TextValidator.ErrorType.Warning, @"The given key already exist. The existing entry would be overwritten!", (key) => { return !EditorPrefs.HasKey(key); })
         };
 
 #if UNITY_EDITOR_LINUX
@@ -90,22 +101,32 @@ namespace CCG.PlayerPrefsEditor
         {
 #if UNITY_EDITOR_WIN
             pathToPrefs = @"SOFTWARE\Unity\UnityEditor\" + PlayerSettings.companyName + @"\" + PlayerSettings.productName;
+            pathToEditorPrefs = @"SOFTWARE\Unity Technologies\Unity Editor 5.x";
             platformPathPrefix = @"<CurrentUser>";
             entryAccessor = new WindowsPrefStorage(pathToPrefs);
+            editorPrefsAccessor = new WindowsPrefStorage(pathToEditorPrefs, false);
 #elif UNITY_EDITOR_OSX
             pathToPrefs = @"Library/Preferences/unity." + MakeValidFileName(PlayerSettings.companyName) + "." + MakeValidFileName(PlayerSettings.productName) + ".plist";
+            pathToEditorPrefs = @"Library/Preferences/com.unity3d.UnityEditor5.x.plist";
             entryAccessor = new MacPrefStorage(pathToPrefs);
             entryAccessor.StartLoadingDelegate = () => { showLoadingIndicatorOverlay = true; };
             entryAccessor.StopLoadingDelegate = () => { showLoadingIndicatorOverlay = false; };
+            editorPrefsAccessor = new MacPrefStorage(pathToEditorPrefs);
 #elif UNITY_EDITOR_LINUX
             pathToPrefs = @".config/unity3d/" + MakeValidFileName(PlayerSettings.companyName) + "/" + MakeValidFileName(PlayerSettings.productName) + "/prefs";
+            pathToEditorPrefs = @".local/share/unity3d/prefs";
             entryAccessor = new LinuxPrefStorage(pathToPrefs);
+            editorPrefsAccessor = new LinuxPrefStorage(pathToEditorPrefs);
 #endif
             entryAccessor.PrefEntryChangedDelegate = () => { updateView = true; };
+            editorPrefsAccessor.PrefEntryChangedDelegate = () => { updateView = true; };
 
             monitoring = EditorPrefs.GetBool("CCG.PlayerPrefsEditor.WatchingForChanges", true);
             if(monitoring)
+            {
                 entryAccessor.StartMonitoring();
+                editorPrefsAccessor.StartMonitoring();
+            }
 
             sortOrder = (PreferencesEntrySortOrder) EditorPrefs.GetInt("CCG.PlayerPrefsEditor.SortOrder", 0);
             searchfield = new MySearchField();
@@ -141,6 +162,7 @@ namespace CCG.PlayerPrefsEditor
         private void OnDisable()
         {
             entryAccessor.StopMonitoring();
+            editorPrefsAccessor.StopMonitoring();
         }
 
         private void InitReorderedList()
@@ -165,12 +187,13 @@ namespace CCG.PlayerPrefsEditor
 
             userDefList = new ReorderableList(serializedObject, serializedObject.FindProperty("userDefList"), false, true, true, true);
             unityDefList = new ReorderableList(serializedObject, serializedObject.FindProperty("unityDefList"), false, true, false, false);
+            editorPrefsList = new ReorderableList(serializedObject, serializedObject.FindProperty("editorPrefsList"), false, true, true, true);
 
             relSpliterPos = EditorPrefs.GetFloat("CCG.PlayerPrefsEditor.RelativeSpliterPosition", 100 / position.width);
 
             userDefList.drawHeaderCallback = (Rect rect) =>
             {
-                EditorGUI.LabelField(rect, "User defined");
+                EditorGUI.LabelField(rect, "PlayerPrefs");
             };
             userDefList.drawElementBackgroundCallback = OnDrawElementBackgroundCallback;
             userDefList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
@@ -193,6 +216,9 @@ namespace CCG.PlayerPrefsEditor
                         break;
                     case PreferenceEntry.PrefTypes.String:
                         value = element.FindPropertyRelative("m_strValue");
+                        break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        value = element.FindPropertyRelative("m_boolValue");
                         break;
                     default:
                         value = element.FindPropertyRelative("This should never happen");
@@ -219,6 +245,9 @@ namespace CCG.PlayerPrefsEditor
                     case PreferenceEntry.PrefTypes.String:
                         EditorGUI.DelayedTextField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
                         break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        value.boolValue = EditorGUI.Toggle(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value.boolValue);
+                        break;
                 }
                 if (EditorGUI.EndChangeCheck())
                 {
@@ -244,6 +273,7 @@ namespace CCG.PlayerPrefsEditor
             {
                 userDefList.ReleaseKeyboardFocus();
                 unityDefList.ReleaseKeyboardFocus();
+                editorPrefsList.ReleaseKeyboardFocus();
 
                 string prefKey = l.serializedProperty.GetArrayElementAtIndex(l.index).FindPropertyRelative("m_key").stringValue;
                 if (EditorUtility.DisplayDialog("Warning!", $"Are you sure you want to delete this entry from PlayerPrefs?\n\nEntry: {prefKey}", "Yes", "No"))
@@ -261,7 +291,7 @@ namespace CCG.PlayerPrefsEditor
             userDefList.onAddDropdownCallback = (Rect buttonRect, ReorderableList l) =>
             {
                 var menu = new GenericMenu();
-                foreach (PreferenceEntry.PrefTypes type in Enum.GetValues(typeof(PreferenceEntry.PrefTypes)))
+                foreach (PreferenceEntry.PrefTypes type in new[] { PreferenceEntry.PrefTypes.String, PreferenceEntry.PrefTypes.Int, PreferenceEntry.PrefTypes.Float })
                 {
                     menu.AddItem(new GUIContent(type.ToString()), false, () =>
                     {
@@ -317,6 +347,9 @@ namespace CCG.PlayerPrefsEditor
                     case PreferenceEntry.PrefTypes.String:
                         value = element.FindPropertyRelative("m_strValue");
                         break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        value = element.FindPropertyRelative("m_boolValue");
+                        break;
                     default:
                         value = element.FindPropertyRelative("This should never happen");
                         break;
@@ -341,12 +374,153 @@ namespace CCG.PlayerPrefsEditor
                     case PreferenceEntry.PrefTypes.String:
                         EditorGUI.DelayedTextField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
                         break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        value.boolValue = EditorGUI.Toggle(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value.boolValue);
+                        break;
                 }
                 GUI.enabled = !showLoadingIndicatorOverlay;
             };
             unityDefList.drawHeaderCallback = (Rect rect) =>
             {
-                EditorGUI.LabelField(rect, "Unity defined");
+                EditorGUI.LabelField(rect, "Unity defined PlayerPrefs");
+            };
+
+            editorPrefsList.drawHeaderCallback = (Rect rect) =>
+            {
+                EditorGUI.LabelField(rect, "EditorPrefs");
+            };
+            editorPrefsList.drawElementBackgroundCallback = OnDrawElementBackgroundCallback;
+            editorPrefsList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
+            {
+                SerializedProperty element = GetEditorPrefsListElementAtIndex(index, editorPrefsList.serializedProperty);
+
+                SerializedProperty key = element.FindPropertyRelative("m_key");
+                SerializedProperty type = element.FindPropertyRelative("m_typeSelection");
+
+                SerializedProperty value;
+
+                // Load only necessary type
+                switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
+                {
+                    case PreferenceEntry.PrefTypes.Float:
+                        value = element.FindPropertyRelative("m_floatValue");
+                        break;
+                    case PreferenceEntry.PrefTypes.Int:
+                        value = element.FindPropertyRelative("m_intValue");
+                        break;
+                    case PreferenceEntry.PrefTypes.String:
+                        value = element.FindPropertyRelative("m_strValue");
+                        break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        value = element.FindPropertyRelative("m_boolValue");
+                        break;
+                    default:
+                        value = element.FindPropertyRelative("This should never happen");
+                        break;
+                }
+
+                float spliterPos = relSpliterPos * rect.width;
+                rect.y += 2;
+
+                EditorGUI.BeginChangeCheck();
+                string prefKeyName = key.stringValue;
+                EditorGUI.LabelField(new Rect(rect.x, rect.y, spliterPos - 1, EditorGUIUtility.singleLineHeight), new GUIContent(prefKeyName, prefKeyName));
+                GUI.enabled = false;
+                EditorGUI.EnumPopup(new Rect(rect.x + spliterPos + 1, rect.y, 60, EditorGUIUtility.singleLineHeight), (PreferenceEntry.PrefTypes)type.enumValueIndex);
+                GUI.enabled = !showLoadingIndicatorOverlay;
+                switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
+                {
+                    case PreferenceEntry.PrefTypes.Float:
+                        EditorGUI.DelayedFloatField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        break;
+                    case PreferenceEntry.PrefTypes.Int:
+                        EditorGUI.DelayedIntField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        break;
+                    case PreferenceEntry.PrefTypes.String:
+                        EditorGUI.DelayedTextField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        value.boolValue = EditorGUI.Toggle(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value.boolValue);
+                        break;
+                }
+                if (EditorGUI.EndChangeCheck())
+                {
+                    editorPrefsAccessor.IgnoreNextChange();
+
+                    switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
+                    {
+                        case PreferenceEntry.PrefTypes.Float:
+                            EditorPrefs.SetFloat(key.stringValue, value.floatValue);
+                            break;
+                        case PreferenceEntry.PrefTypes.Int:
+                            EditorPrefs.SetInt(key.stringValue, value.intValue);
+                            break;
+                        case PreferenceEntry.PrefTypes.String:
+                            EditorPrefs.SetString(key.stringValue, value.stringValue);
+                            break;
+                        case PreferenceEntry.PrefTypes.Bool:
+                            EditorPrefs.SetBool(key.stringValue, value.boolValue);
+                            break;
+                    }
+                }
+            };
+            editorPrefsList.onRemoveCallback = (ReorderableList l) =>
+            {
+                userDefList.ReleaseKeyboardFocus();
+                unityDefList.ReleaseKeyboardFocus();
+                editorPrefsList.ReleaseKeyboardFocus();
+
+                string prefKey = l.serializedProperty.GetArrayElementAtIndex(l.index).FindPropertyRelative("m_key").stringValue;
+                if (EditorUtility.DisplayDialog("Warning!", $"Are you sure you want to delete this entry from EditorPrefs?\n\nEntry: {prefKey}\n\nEditorPrefs are shared by the Unity Editor across projects on this computer.", "Yes", "No"))
+                {
+                    editorPrefsAccessor.IgnoreNextChange();
+
+                    EditorPrefs.DeleteKey(prefKey);
+
+                    ReorderableList.defaultBehaviours.DoRemoveButton(l);
+                    PrepareData();
+                    GUIUtility.ExitGUI();
+                }
+            };
+            editorPrefsList.onAddDropdownCallback = (Rect buttonRect, ReorderableList l) =>
+            {
+                var menu = new GenericMenu();
+                foreach (PreferenceEntry.PrefTypes type in Enum.GetValues(typeof(PreferenceEntry.PrefTypes)))
+                {
+                    menu.AddItem(new GUIContent(type.ToString()), false, () =>
+                    {
+                        TextFieldDialog.OpenDialog("Create new editor property", "Key for the new editor property:", editorPrefKeyValidatorList, (key) => {
+
+                            editorPrefsAccessor.IgnoreNextChange();
+
+                            switch (type)
+                            {
+                                case PreferenceEntry.PrefTypes.Float:
+                                    EditorPrefs.SetFloat(key, 0.0f);
+
+                                    break;
+                                case PreferenceEntry.PrefTypes.Int:
+                                    EditorPrefs.SetInt(key, 0);
+
+                                    break;
+                                case PreferenceEntry.PrefTypes.String:
+                                    EditorPrefs.SetString(key, string.Empty);
+
+                                    break;
+                                case PreferenceEntry.PrefTypes.Bool:
+                                    EditorPrefs.SetBool(key, false);
+
+                                    break;
+                            }
+
+                            PrepareData();
+
+                            Focus();
+                        }, this);
+
+                    });
+                }
+                menu.ShowAsContext();
             };
         }
 
@@ -426,7 +600,6 @@ namespace CCG.PlayerPrefsEditor
 
                 if (GUILayout.Button(sortOrderContent, EditorStyles.toolbarButton))
                 {
-                    
                     sortOrder++;
                     if((int) sortOrder >= Enum.GetValues(typeof(PreferencesEntrySortOrder)).Length)
                     {
@@ -444,9 +617,15 @@ namespace CCG.PlayerPrefsEditor
                     EditorPrefs.SetBool("CCG.PlayerPrefsEditor.WatchingForChanges", monitoring);
 
                     if (monitoring)
+                    {
                         entryAccessor.StartMonitoring();
+                        editorPrefsAccessor.StartMonitoring();
+                    }
                     else
+                    {
                         entryAccessor.StopMonitoring();
+                        editorPrefsAccessor.StopMonitoring();
+                    }
 
                     Repaint();
                 }
@@ -455,9 +634,9 @@ namespace CCG.PlayerPrefsEditor
                     PlayerPrefs.Save();
                     PrepareData();
                 }
-                if (GUILayout.Button(new GUIContent(ImageManager.Trash, "Delete all"), EditorStyles.toolbarButton))
+                if (GUILayout.Button(new GUIContent(ImageManager.Trash, "Delete all PlayerPrefs"), EditorStyles.toolbarButton))
                 {
-                    if (EditorUtility.DisplayDialog("Warning!", "Are you sure you want to delete ALL entries from PlayerPrefs?\n\nUse with caution! Unity defined keys are affected too.", "Yes", "No"))
+                    if (EditorUtility.DisplayDialog("Warning!", "Are you sure you want to delete ALL entries from PlayerPrefs?\n\nUse with caution! Unity defined PlayerPrefs keys are affected too.\n\nEditorPrefs are not affected.", "Yes", "No"))
                     {
                         PlayerPrefs.DeleteAll();
                         PrepareData();
@@ -471,18 +650,28 @@ namespace CCG.PlayerPrefsEditor
                 GUILayout.BeginHorizontal();
 
                 GUILayout.Box(ImageManager.GetOsIcon(), Styles.icon);
+                GUILayout.Label("PlayerPrefs", GUILayout.Width(70));
                 GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + pathToPrefs, GUILayout.MinWidth(200));
+
+                GUILayout.EndHorizontal();
+
+                GUILayout.BeginHorizontal();
+
+                GUILayout.Box(ImageManager.GetOsIcon(), Styles.icon);
+                GUILayout.Label("EditorPrefs", GUILayout.Width(70));
+                GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + pathToEditorPrefs, GUILayout.MinWidth(200));
 
                 GUILayout.EndHorizontal();
 
                 scrollPos = GUILayout.BeginScrollView(scrollPos);
                 serializedObject.Update();
                 userDefList.DoLayoutList();
+                editorPrefsList.DoLayoutList();
                 serializedObject.ApplyModifiedProperties();
 
                 GUILayout.FlexibleSpace();
 
-                showSystemGroup = EditorGUILayout.Foldout(showSystemGroup, new GUIContent("Show System"));
+                showSystemGroup = EditorGUILayout.Foldout(showSystemGroup, new GUIContent("Show System PlayerPrefs"));
                 if (showSystemGroup)
                 {
                     unityDefList.DoLayoutList();
@@ -524,15 +713,18 @@ namespace CCG.PlayerPrefsEditor
             prefEntryHolder.ClearLists();
 
             LoadKeys(out userDef, out unityDef, reloadKeys);
+            LoadEditorPrefsKeys(out editorPrefsDef, reloadKeys);
 
             CreatePrefEntries(userDef, ref prefEntryHolder.userDefList);
             CreatePrefEntries(unityDef, ref prefEntryHolder.unityDefList);
+            CreatePrefEntries(editorPrefsDef, ref prefEntryHolder.editorPrefsList, true);
 
             // Clear cache
             userDefListCache = new SerializedProperty[prefEntryHolder.userDefList.Count];
+            editorPrefsListCache = new SerializedProperty[prefEntryHolder.editorPrefsList.Count];
         }
 
-        private void CreatePrefEntries(string[] keySource, ref List<PreferenceEntry> listDest)
+        private void CreatePrefEntries(string[] keySource, ref List<PreferenceEntry> listDest, bool useEditorPrefs = false)
         {
             if (!string.IsNullOrEmpty(searchTxt) && searchfield.SearchMode == MySearchField.SearchModePreferencesEditorWindow.Key)
             {
@@ -543,6 +735,49 @@ namespace CCG.PlayerPrefsEditor
             {
                 var entry = new PreferenceEntry();
                 entry.m_key = key;
+
+                if (useEditorPrefs)
+                {
+                    string editorString = EditorPrefs.GetString(key, ERROR_VALUE_STR);
+
+                    if (editorString != ERROR_VALUE_STR)
+                    {
+                        entry.m_strValue = editorString;
+                        entry.m_typeSelection = PreferenceEntry.PrefTypes.String;
+                        listDest.Add(entry);
+                        continue;
+                    }
+
+                    bool boolWhenDefaultFalse = EditorPrefs.GetBool(key, false);
+                    bool boolWhenDefaultTrue = EditorPrefs.GetBool(key, true);
+                    if (boolWhenDefaultFalse == boolWhenDefaultTrue)
+                    {
+                        entry.m_boolValue = boolWhenDefaultFalse;
+                        entry.m_typeSelection = PreferenceEntry.PrefTypes.Bool;
+                        listDest.Add(entry);
+                        continue;
+                    }
+
+                    float editorFloat = EditorPrefs.GetFloat(key, float.NaN);
+                    if (!float.IsNaN(editorFloat))
+                    {
+                        entry.m_floatValue = editorFloat;
+                        entry.m_typeSelection = PreferenceEntry.PrefTypes.Float;
+                        listDest.Add(entry);
+                        continue;
+                    }
+
+                    int editorInt = EditorPrefs.GetInt(key, ERROR_VALUE_INT);
+                    if (editorInt != ERROR_VALUE_INT)
+                    {
+                        entry.m_intValue = editorInt;
+                        entry.m_typeSelection = PreferenceEntry.PrefTypes.Int;
+                        listDest.Add(entry);
+                        continue;
+                    }
+
+                    continue;
+                }
 
                 string s = PlayerPrefs.GetString(key, ERROR_VALUE_STR);
 
@@ -604,6 +839,11 @@ namespace CCG.PlayerPrefsEditor
             userDef = (groups.ContainsKey(false)) ? groups[false].ToArray() : new string[0];
         }
 
+        private void LoadEditorPrefsKeys(out string[] editorPrefsDef, bool reloadKeys)
+        {
+            editorPrefsDef = editorPrefsAccessor.GetKeys(reloadKeys);
+        }
+
         private SerializedProperty GetUserDefListElementAtIndex(int index, SerializedProperty ListProperty)
         {
             UnityEngine.Assertions.Assert.IsTrue(ListProperty.isArray, "Given 'ListProperts' is not type of array");
@@ -613,6 +853,17 @@ namespace CCG.PlayerPrefsEditor
                 userDefListCache[index] = ListProperty.GetArrayElementAtIndex(index);
             }
             return userDefListCache[index];
+        }
+
+        private SerializedProperty GetEditorPrefsListElementAtIndex(int index, SerializedProperty ListProperty)
+        {
+            UnityEngine.Assertions.Assert.IsTrue(ListProperty.isArray, "Given 'ListProperts' is not type of array");
+
+            if (editorPrefsListCache[index] == null)
+            {
+                editorPrefsListCache[index] = ListProperty.GetArrayElementAtIndex(index);
+            }
+            return editorPrefsListCache[index];
         }
 
 #if (UNITY_EDITOR_LINUX || UNITY_EDITOR_OSX)
