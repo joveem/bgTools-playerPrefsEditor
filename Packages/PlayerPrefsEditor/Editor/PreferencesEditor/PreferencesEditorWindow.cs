@@ -25,11 +25,26 @@ namespace CCG.PlayerPrefsEditor
         private readonly string ERROR_VALUE_STR = "<ccgTools_error_24072017>";
         #endregion //ErrorValues
 
-        private enum PreferencesEntrySortOrder
+        private enum PreferenceEntryColumn
+        {
+            Key = 0,
+            Type = 1,
+            Value = 2
+        }
+
+        private enum ColOrderingStatus
         {
             None = 0,
-            Asscending = 1,
+            Ascending = 1,
             Descending = 2
+        }
+
+        private class ListOrderingState
+        {
+            public PreferenceEntryColumn CurrentMainOrderingCol = PreferenceEntryColumn.Key;
+            public ColOrderingStatus KeyOrderingStatus = ColOrderingStatus.Ascending;
+            public ColOrderingStatus TypeOrderingStatus = ColOrderingStatus.None;
+            public ColOrderingStatus ValueOrderingStatus = ColOrderingStatus.None;
         }
 
         private static string pathToPrefs = String.Empty;
@@ -41,7 +56,9 @@ namespace CCG.PlayerPrefsEditor
         private string[] editorPrefsDef;
         private bool showSystemGroup = false;
 
-        private PreferencesEntrySortOrder sortOrder = PreferencesEntrySortOrder.None;
+        private ListOrderingState userDefOrdering = new ListOrderingState();
+        private ListOrderingState unityDefOrdering = new ListOrderingState();
+        private ListOrderingState editorPrefsOrdering = new ListOrderingState();
 
         private SerializedObject serializedObject;
         private ReorderableList userDefList;
@@ -50,6 +67,9 @@ namespace CCG.PlayerPrefsEditor
 
         private SerializedProperty[] userDefListCache = new SerializedProperty[0];
         private SerializedProperty[] editorPrefsListCache = new SerializedProperty[0];
+
+        private const float TypeColumnWidth = 60.0f;
+        private const float ValueColumnOffset = 62.0f;
 
         private PreferenceEntryHolder prefEntryHolder;
 
@@ -128,7 +148,6 @@ namespace CCG.PlayerPrefsEditor
                 editorPrefsAccessor.StartMonitoring();
             }
 
-            sortOrder = (PreferencesEntrySortOrder) EditorPrefs.GetInt("CCG.PlayerPrefsEditor.SortOrder", 0);
             searchfield = new MySearchField();
             searchfield.DropdownSelectionDelegate = () => { PrepareData(); };
 
@@ -193,7 +212,7 @@ namespace CCG.PlayerPrefsEditor
 
             userDefList.drawHeaderCallback = (Rect rect) =>
             {
-                EditorGUI.LabelField(rect, "PlayerPrefs");
+                DrawColumnHeader(rect, userDefOrdering);
             };
             userDefList.drawElementBackgroundCallback = OnDrawElementBackgroundCallback;
             userDefList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
@@ -225,28 +244,31 @@ namespace CCG.PlayerPrefsEditor
                         break;
                 }
 
-                float spliterPos = relSpliterPos * rect.width;
                 rect.y += 2;
+                Rect keyRect;
+                Rect typeRect;
+                Rect valueRect;
+                GetColumnRects(rect, out keyRect, out typeRect, out valueRect);
 
                 EditorGUI.BeginChangeCheck();
                 string prefKeyName = key.stringValue;
-                EditorGUI.LabelField(new Rect(rect.x, rect.y, spliterPos - 1, EditorGUIUtility.singleLineHeight), new GUIContent(prefKeyName, prefKeyName));
+                EditorGUI.LabelField(keyRect, new GUIContent(prefKeyName, prefKeyName));
                 GUI.enabled = false;
-                EditorGUI.EnumPopup(new Rect(rect.x + spliterPos + 1, rect.y, 60, EditorGUIUtility.singleLineHeight), (PreferenceEntry.PrefTypes)type.enumValueIndex);
+                EditorGUI.EnumPopup(typeRect, (PreferenceEntry.PrefTypes)type.enumValueIndex);
                 GUI.enabled = !showLoadingIndicatorOverlay;
                 switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
                 {
                     case PreferenceEntry.PrefTypes.Float:
-                        EditorGUI.DelayedFloatField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedFloatField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.Int:
-                        EditorGUI.DelayedIntField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedIntField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.String:
-                        EditorGUI.DelayedTextField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedTextField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.Bool:
-                        value.boolValue = EditorGUI.Toggle(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value.boolValue);
+                        value.boolValue = EditorGUI.Toggle(valueRect, value.boolValue);
                         break;
                 }
                 if (EditorGUI.EndChangeCheck())
@@ -355,39 +377,42 @@ namespace CCG.PlayerPrefsEditor
                         break;
                 }
 
-                float spliterPos = relSpliterPos * rect.width;
                 rect.y += 2;
+                Rect keyRect;
+                Rect typeRect;
+                Rect valueRect;
+                GetColumnRects(rect, out keyRect, out typeRect, out valueRect);
 
                 GUI.enabled = false;
                 string prefKeyName = key.stringValue;
-                EditorGUI.LabelField(new Rect(rect.x, rect.y, spliterPos - 1, EditorGUIUtility.singleLineHeight), new GUIContent(prefKeyName, prefKeyName));
-                EditorGUI.EnumPopup(new Rect(rect.x + spliterPos + 1, rect.y, 60, EditorGUIUtility.singleLineHeight), (PreferenceEntry.PrefTypes)type.enumValueIndex);
+                EditorGUI.LabelField(keyRect, new GUIContent(prefKeyName, prefKeyName));
+                EditorGUI.EnumPopup(typeRect, (PreferenceEntry.PrefTypes)type.enumValueIndex);
 
                 switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
                 {
                     case PreferenceEntry.PrefTypes.Float:
-                        EditorGUI.DelayedFloatField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedFloatField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.Int:
-                        EditorGUI.DelayedIntField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedIntField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.String:
-                        EditorGUI.DelayedTextField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedTextField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.Bool:
-                        value.boolValue = EditorGUI.Toggle(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value.boolValue);
+                        value.boolValue = EditorGUI.Toggle(valueRect, value.boolValue);
                         break;
                 }
                 GUI.enabled = !showLoadingIndicatorOverlay;
             };
             unityDefList.drawHeaderCallback = (Rect rect) =>
             {
-                EditorGUI.LabelField(rect, "Unity defined PlayerPrefs");
+                DrawColumnHeader(rect, unityDefOrdering);
             };
 
             editorPrefsList.drawHeaderCallback = (Rect rect) =>
             {
-                EditorGUI.LabelField(rect, "EditorPrefs");
+                DrawColumnHeader(rect, editorPrefsOrdering);
             };
             editorPrefsList.drawElementBackgroundCallback = OnDrawElementBackgroundCallback;
             editorPrefsList.drawElementCallback = (Rect rect, int index, bool isActive, bool isFocused) =>
@@ -419,28 +444,31 @@ namespace CCG.PlayerPrefsEditor
                         break;
                 }
 
-                float spliterPos = relSpliterPos * rect.width;
                 rect.y += 2;
+                Rect keyRect;
+                Rect typeRect;
+                Rect valueRect;
+                GetColumnRects(rect, out keyRect, out typeRect, out valueRect);
 
                 EditorGUI.BeginChangeCheck();
                 string prefKeyName = key.stringValue;
-                EditorGUI.LabelField(new Rect(rect.x, rect.y, spliterPos - 1, EditorGUIUtility.singleLineHeight), new GUIContent(prefKeyName, prefKeyName));
+                EditorGUI.LabelField(keyRect, new GUIContent(prefKeyName, prefKeyName));
                 GUI.enabled = false;
-                EditorGUI.EnumPopup(new Rect(rect.x + spliterPos + 1, rect.y, 60, EditorGUIUtility.singleLineHeight), (PreferenceEntry.PrefTypes)type.enumValueIndex);
+                EditorGUI.EnumPopup(typeRect, (PreferenceEntry.PrefTypes)type.enumValueIndex);
                 GUI.enabled = !showLoadingIndicatorOverlay;
                 switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
                 {
                     case PreferenceEntry.PrefTypes.Float:
-                        EditorGUI.DelayedFloatField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedFloatField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.Int:
-                        EditorGUI.DelayedIntField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedIntField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.String:
-                        EditorGUI.DelayedTextField(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value, GUIContent.none);
+                        EditorGUI.DelayedTextField(valueRect, value, GUIContent.none);
                         break;
                     case PreferenceEntry.PrefTypes.Bool:
-                        value.boolValue = EditorGUI.Toggle(new Rect(rect.x + spliterPos + 62, rect.y, rect.width - spliterPos - 60, EditorGUIUtility.singleLineHeight), value.boolValue);
+                        value.boolValue = EditorGUI.Toggle(valueRect, value.boolValue);
                         break;
                 }
                 if (EditorGUI.EndChangeCheck())
@@ -524,6 +552,107 @@ namespace CCG.PlayerPrefsEditor
             };
         }
 
+        private void DrawColumnHeader(Rect rect, ListOrderingState orderingState)
+        {
+            rect.y += 1;
+            rect.height = EditorGUIUtility.singleLineHeight;
+
+            Rect keyRect;
+            Rect typeRect;
+            Rect valueRect;
+            GetColumnRects(rect, out keyRect, out typeRect, out valueRect);
+
+            DrawColumnHeaderButton(keyRect, "Key", PreferenceEntryColumn.Key, orderingState);
+            DrawColumnHeaderButton(typeRect, "Type", PreferenceEntryColumn.Type, orderingState);
+            DrawColumnHeaderButton(valueRect, "Value", PreferenceEntryColumn.Value, orderingState);
+        }
+
+        private void DrawColumnHeaderButton(Rect rect, string label, PreferenceEntryColumn column, ListOrderingState orderingState)
+        {
+            if (GUI.Button(rect, label, EditorStyles.toolbarButton))
+            {
+                ApplyColumnOrderingClick(orderingState, column);
+                PrepareData(false);
+                GUIUtility.ExitGUI();
+            }
+
+            if (column != PreferenceEntryColumn.Key && column != orderingState.CurrentMainOrderingCol)
+                return;
+
+            ColOrderingStatus status = GetColumnOrderingStatus(orderingState, column);
+            Texture2D sortIcon = null;
+            if (status == ColOrderingStatus.Ascending)
+                sortIcon = ImageManager.SortAsscending;
+            else if (status == ColOrderingStatus.Descending)
+                sortIcon = ImageManager.SortDescending;
+
+            if (sortIcon == null)
+                return;
+
+            Rect iconRect = new Rect(rect.xMax - 16.0f, rect.y + 1.0f, 14.0f, 14.0f);
+            GUI.DrawTexture(iconRect, sortIcon, ScaleMode.ScaleToFit);
+        }
+
+        private void ApplyColumnOrderingClick(ListOrderingState orderingState, PreferenceEntryColumn column)
+        {
+            if (orderingState.CurrentMainOrderingCol == column)
+            {
+                SetColumnOrderingStatus(orderingState, column, ToggleColumnOrderingStatus(GetColumnOrderingStatus(orderingState, column)));
+                return;
+            }
+
+            ColOrderingStatus keyStatus = orderingState.KeyOrderingStatus;
+            orderingState.TypeOrderingStatus = ColOrderingStatus.None;
+            orderingState.ValueOrderingStatus = ColOrderingStatus.None;
+            orderingState.KeyOrderingStatus = (column == PreferenceEntryColumn.Key) ? ColOrderingStatus.Ascending : keyStatus;
+            SetColumnOrderingStatus(orderingState, column, ColOrderingStatus.Ascending);
+            orderingState.CurrentMainOrderingCol = column;
+        }
+
+        private ColOrderingStatus ToggleColumnOrderingStatus(ColOrderingStatus status)
+        {
+            return (status == ColOrderingStatus.Ascending) ? ColOrderingStatus.Descending : ColOrderingStatus.Ascending;
+        }
+
+        private ColOrderingStatus GetColumnOrderingStatus(ListOrderingState orderingState, PreferenceEntryColumn column)
+        {
+            switch (column)
+            {
+                case PreferenceEntryColumn.Key:
+                    return orderingState.KeyOrderingStatus;
+                case PreferenceEntryColumn.Type:
+                    return orderingState.TypeOrderingStatus;
+                case PreferenceEntryColumn.Value:
+                    return orderingState.ValueOrderingStatus;
+                default:
+                    return ColOrderingStatus.None;
+            }
+        }
+
+        private void SetColumnOrderingStatus(ListOrderingState orderingState, PreferenceEntryColumn column, ColOrderingStatus status)
+        {
+            switch (column)
+            {
+                case PreferenceEntryColumn.Key:
+                    orderingState.KeyOrderingStatus = (status == ColOrderingStatus.None) ? ColOrderingStatus.Ascending : status;
+                    break;
+                case PreferenceEntryColumn.Type:
+                    orderingState.TypeOrderingStatus = status;
+                    break;
+                case PreferenceEntryColumn.Value:
+                    orderingState.ValueOrderingStatus = status;
+                    break;
+            }
+        }
+
+        private void GetColumnRects(Rect rect, out Rect keyRect, out Rect typeRect, out Rect valueRect)
+        {
+            float spliterPos = relSpliterPos * rect.width;
+            keyRect = new Rect(rect.x, rect.y, Mathf.Max(0.0f, spliterPos - 1.0f), EditorGUIUtility.singleLineHeight);
+            typeRect = new Rect(rect.x + spliterPos + 1.0f, rect.y, TypeColumnWidth, EditorGUIUtility.singleLineHeight);
+            valueRect = new Rect(rect.x + spliterPos + ValueColumnOffset, rect.y, Mathf.Max(0.0f, rect.width - spliterPos - TypeColumnWidth), EditorGUIUtility.singleLineHeight);
+        }
+
         private void OnDrawElementBackgroundCallback(Rect rect, int index, bool isActive, bool isFocused)
         {
             if (Event.current.type == EventType.Repaint)
@@ -582,32 +711,6 @@ namespace CCG.PlayerPrefsEditor
                 GUILayout.FlexibleSpace();
 
                 EditorGUIUtility.SetIconSize(new Vector2(14.0f, 14.0f));
-
-                GUIContent sortOrderContent;
-                switch (sortOrder)
-                {
-                    case PreferencesEntrySortOrder.Asscending:
-                        sortOrderContent = new GUIContent(ImageManager.SortAsscending, "Ascending sorted");
-                        break;
-                    case PreferencesEntrySortOrder.Descending:
-                        sortOrderContent = new GUIContent(ImageManager.SortDescending, "Descending sorted");
-                        break;
-                    case PreferencesEntrySortOrder.None:
-                    default:
-                        sortOrderContent = new GUIContent(ImageManager.SortDisabled, "Not sorted");
-                        break;
-                }
-
-                if (GUILayout.Button(sortOrderContent, EditorStyles.toolbarButton))
-                {
-                    sortOrder++;
-                    if((int) sortOrder >= Enum.GetValues(typeof(PreferencesEntrySortOrder)).Length)
-                    {
-                        sortOrder = 0;
-                    }
-                    EditorPrefs.SetInt("CCG.PlayerPrefsEditor.SortOrder", (int) sortOrder);
-                    PrepareData(false);
-                }
 
                 GUIContent watcherContent = (entryAccessor.IsMonitoring()) ? new GUIContent(ImageManager.Watching, "Watching changes") : new GUIContent(ImageManager.NotWatching, "Not watching changes");
                 if (GUILayout.Button(watcherContent, EditorStyles.toolbarButton))
@@ -715,16 +818,16 @@ namespace CCG.PlayerPrefsEditor
             LoadKeys(out userDef, out unityDef, reloadKeys);
             LoadEditorPrefsKeys(out editorPrefsDef, reloadKeys);
 
-            CreatePrefEntries(userDef, ref prefEntryHolder.userDefList);
-            CreatePrefEntries(unityDef, ref prefEntryHolder.unityDefList);
-            CreatePrefEntries(editorPrefsDef, ref prefEntryHolder.editorPrefsList, true);
+            CreatePrefEntries(userDef, ref prefEntryHolder.userDefList, userDefOrdering);
+            CreatePrefEntries(unityDef, ref prefEntryHolder.unityDefList, unityDefOrdering);
+            CreatePrefEntries(editorPrefsDef, ref prefEntryHolder.editorPrefsList, editorPrefsOrdering, true);
 
             // Clear cache
             userDefListCache = new SerializedProperty[prefEntryHolder.userDefList.Count];
             editorPrefsListCache = new SerializedProperty[prefEntryHolder.editorPrefsList.Count];
         }
 
-        private void CreatePrefEntries(string[] keySource, ref List<PreferenceEntry> listDest, bool useEditorPrefs = false)
+        private void CreatePrefEntries(string[] keySource, ref List<PreferenceEntry> listDest, ListOrderingState orderingState, bool useEditorPrefs = false)
         {
             if (!string.IsNullOrEmpty(searchTxt) && searchfield.SearchMode == MySearchField.SearchModePreferencesEditorWindow.Key)
             {
@@ -813,15 +916,44 @@ namespace CCG.PlayerPrefsEditor
                 listDest = listDest.Where((preferenceEntry) => preferenceEntry.ValueAsString().ToLower().Contains(searchTxt.ToLower())).ToList<PreferenceEntry>();
             }
 
-            switch(sortOrder)
+            SortPrefEntries(listDest, orderingState);
+        }
+
+        private void SortPrefEntries(List<PreferenceEntry> entries, ListOrderingState orderingState)
+        {
+            entries.Sort((PreferenceEntry x, PreferenceEntry y) =>
             {
-                case PreferencesEntrySortOrder.Asscending:
-                    listDest.Sort((PreferenceEntry x, PreferenceEntry y) => { return x.m_key.CompareTo(y.m_key); });
-                    break;
-                case PreferencesEntrySortOrder.Descending:
-                    listDest.Sort((PreferenceEntry x, PreferenceEntry y) => { return y.m_key.CompareTo(x.m_key); });
-                    break;
+                int result = ComparePrefEntries(x, y, orderingState.CurrentMainOrderingCol);
+                result = ApplyOrderingDirection(result, GetColumnOrderingStatus(orderingState, orderingState.CurrentMainOrderingCol));
+
+                if (result == 0 && orderingState.CurrentMainOrderingCol != PreferenceEntryColumn.Key)
+                    result = ApplyOrderingDirection(ComparePrefEntries(x, y, PreferenceEntryColumn.Key), orderingState.KeyOrderingStatus);
+
+                return result;
+            });
+        }
+
+        private int ComparePrefEntries(PreferenceEntry x, PreferenceEntry y, PreferenceEntryColumn column)
+        {
+            switch (column)
+            {
+                case PreferenceEntryColumn.Key:
+                    return string.Compare(x.m_key, y.m_key, StringComparison.OrdinalIgnoreCase);
+                case PreferenceEntryColumn.Type:
+                    return x.m_typeSelection.CompareTo(y.m_typeSelection);
+                case PreferenceEntryColumn.Value:
+                    return string.Compare(x.ValueAsString(), y.ValueAsString(), StringComparison.OrdinalIgnoreCase);
+                default:
+                    return 0;
             }
+        }
+
+        private int ApplyOrderingDirection(int result, ColOrderingStatus status)
+        {
+            if (status == ColOrderingStatus.Descending)
+                return -result;
+
+            return result;
         }
 
         private void LoadKeys(out string[] userDef, out string[] unityDef, bool reloadKeys)
