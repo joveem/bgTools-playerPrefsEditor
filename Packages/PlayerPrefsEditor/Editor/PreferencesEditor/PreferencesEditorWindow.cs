@@ -47,6 +47,43 @@ namespace CCG.PlayerPrefsEditor
             public ColOrderingStatus ValueOrderingStatus = ColOrderingStatus.None;
         }
 
+        [Serializable]
+        private class FilterEntry
+        {
+            public bool Active;
+            public string Value;
+
+            public FilterEntry()
+            { }
+
+            public FilterEntry(bool active, string value)
+            {
+                Active = active;
+                Value = value;
+            }
+        }
+
+        [Serializable]
+        private class FilterListState
+        {
+            public bool Active;
+            public List<FilterEntry> Entries = new List<FilterEntry>();
+        }
+
+        [Serializable]
+        private class PrefListFilterState
+        {
+            public FilterListState IncludeFilter = new FilterListState();
+            public FilterListState ExcludeFilter = new FilterListState();
+        }
+
+        [Serializable]
+        private class PrefsFilterState
+        {
+            public PrefListFilterState PlayerPrefs = new PrefListFilterState();
+            public PrefListFilterState EditorPrefs = new PrefListFilterState();
+        }
+
         private static string pathToPrefs = String.Empty;
         private static string pathToEditorPrefs = String.Empty;
         private static string platformPathPrefix = @"~";
@@ -59,6 +96,7 @@ namespace CCG.PlayerPrefsEditor
         private ListOrderingState userDefOrdering = new ListOrderingState();
         private ListOrderingState unityDefOrdering = new ListOrderingState();
         private ListOrderingState editorPrefsOrdering = new ListOrderingState();
+        private PrefsFilterState filterState;
 
         private SerializedObject serializedObject;
         private ReorderableList userDefList;
@@ -87,6 +125,8 @@ namespace CCG.PlayerPrefsEditor
         private bool updateView = false;
         private bool monitoring = false;
         private bool showLoadingIndicatorOverlay = false;
+
+        private string FilterStateEditorPrefsKey => "CCG.PlayerPrefsEditor.RelativeSpliterPosition" + "_" + Application.identifier + "_filter_state";
 
         private readonly List<TextValidator> prefKeyValidatorList = new List<TextValidator>()
         {
@@ -150,6 +190,7 @@ namespace CCG.PlayerPrefsEditor
 
             searchfield = new MySearchField();
             searchfield.DropdownSelectionDelegate = () => { PrepareData(); };
+            LoadFilterState();
 
             // Fix for serialisation issue of static fields
             if (userDefList == null)
@@ -552,6 +593,152 @@ namespace CCG.PlayerPrefsEditor
             };
         }
 
+        private void LoadFilterState()
+        {
+            filterState = CreateDefaultFilterState();
+
+            string storedState = EditorPrefs.GetString(FilterStateEditorPrefsKey, string.Empty);
+            if (!string.IsNullOrEmpty(storedState))
+            {
+                try
+                {
+                    JsonUtility.FromJsonOverwrite(storedState, filterState);
+                }
+                catch (Exception)
+                {
+                    filterState = CreateDefaultFilterState();
+                }
+            }
+
+            EnsureFilterState();
+        }
+
+        private void SaveFilterState()
+        {
+            EnsureFilterState();
+            EditorPrefs.SetString(FilterStateEditorPrefsKey, JsonUtility.ToJson(filterState, true));
+        }
+
+        private PrefsFilterState CreateDefaultFilterState()
+        {
+            PrefsFilterState state = new PrefsFilterState();
+
+            state.PlayerPrefs.IncludeFilter.Active = true;
+            state.PlayerPrefs.IncludeFilter.Entries.Add(new FilterEntry(true, string.Empty));
+            state.PlayerPrefs.ExcludeFilter.Active = true;
+            state.PlayerPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, string.Empty));
+
+            state.EditorPrefs.IncludeFilter.Active = true;
+            state.EditorPrefs.IncludeFilter.Entries.Add(new FilterEntry(true, Application.identifier));
+            state.EditorPrefs.ExcludeFilter.Active = true;
+            state.EditorPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, "com.Unity_Technologies."));
+            state.EditorPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, "Unity."));
+            state.EditorPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, "UnityEditor."));
+            state.EditorPrefs.ExcludeFilter.Entries.Add(new FilterEntry(true, "CCG.PlayerPrefsEditor."));
+
+            return state;
+        }
+
+        private void EnsureFilterState()
+        {
+            if (filterState == null)
+                filterState = CreateDefaultFilterState();
+
+            EnsurePrefListFilterState(ref filterState.PlayerPrefs);
+            EnsurePrefListFilterState(ref filterState.EditorPrefs);
+        }
+
+        private void EnsurePrefListFilterState(ref PrefListFilterState state)
+        {
+            if (state == null)
+                state = new PrefListFilterState();
+
+            EnsureFilterListState(ref state.IncludeFilter);
+            EnsureFilterListState(ref state.ExcludeFilter);
+        }
+
+        private void EnsureFilterListState(ref FilterListState state)
+        {
+            if (state == null)
+                state = new FilterListState();
+
+            if (state.Entries == null)
+                state.Entries = new List<FilterEntry>();
+
+            for (int i = state.Entries.Count - 1; i >= 0; i--)
+            {
+                if (state.Entries[i] == null)
+                    state.Entries.RemoveAt(i);
+            }
+        }
+
+        private void DrawFilterControls(PrefListFilterState listFilterState)
+        {
+            EditorGUI.BeginChangeCheck();
+
+            GUILayout.BeginHorizontal();
+            DrawFilterList("include filter", listFilterState.IncludeFilter);
+            DrawFilterList("exclude filter", listFilterState.ExcludeFilter);
+            GUILayout.EndHorizontal();
+
+            if (EditorGUI.EndChangeCheck())
+            {
+                SaveFilterState();
+                PrepareData(false);
+            }
+        }
+
+        private void DrawFilterList(string title, FilterListState filterListState)
+        {
+            GUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true));
+
+            filterListState.Active = EditorGUILayout.ToggleLeft(title, filterListState.Active);
+
+            bool previousEnabled = GUI.enabled;
+            Color previousColor = GUI.color;
+
+            if (!filterListState.Active)
+            {
+                GUI.enabled = false;
+                GUI.color = new Color(previousColor.r, previousColor.g, previousColor.b, previousColor.a * 0.45f);
+            }
+
+            int removeIndex = -1;
+            for (int i = 0; i < filterListState.Entries.Count; i++)
+            {
+                FilterEntry entry = filterListState.Entries[i];
+
+                GUILayout.BeginHorizontal();
+                entry.Active = EditorGUILayout.Toggle(entry.Active, GUILayout.Width(18.0f));
+
+                Color rowColor = GUI.color;
+                if (!entry.Active)
+                    GUI.color = new Color(rowColor.r, rowColor.g, rowColor.b, rowColor.a * 0.45f);
+
+                entry.Value = EditorGUILayout.TextField(entry.Value ?? string.Empty);
+                GUI.color = rowColor;
+
+                if (GUILayout.Button("-", Styles.miniButton))
+                    removeIndex = i;
+
+                GUILayout.EndHorizontal();
+            }
+
+            if (removeIndex >= 0)
+                filterListState.Entries.RemoveAt(removeIndex);
+
+            GUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("+", Styles.miniButton))
+                filterListState.Entries.Add(new FilterEntry(true, string.Empty));
+            GUILayout.EndHorizontal();
+
+            GUI.enabled = previousEnabled;
+            GUI.color = previousColor;
+
+            GUILayout.EndVertical();
+        }
+
         private void DrawColumnHeader(Rect rect, ListOrderingState orderingState)
         {
             rect.y += 1;
@@ -767,8 +954,13 @@ namespace CCG.PlayerPrefsEditor
                 GUILayout.EndHorizontal();
 
                 scrollPos = GUILayout.BeginScrollView(scrollPos);
+                DrawFilterControls(filterState.PlayerPrefs);
                 serializedObject.Update();
                 userDefList.DoLayoutList();
+                serializedObject.ApplyModifiedProperties();
+
+                DrawFilterControls(filterState.EditorPrefs);
+                serializedObject.Update();
                 editorPrefsList.DoLayoutList();
                 serializedObject.ApplyModifiedProperties();
 
@@ -818,16 +1010,16 @@ namespace CCG.PlayerPrefsEditor
             LoadKeys(out userDef, out unityDef, reloadKeys);
             LoadEditorPrefsKeys(out editorPrefsDef, reloadKeys);
 
-            CreatePrefEntries(userDef, ref prefEntryHolder.userDefList, userDefOrdering);
+            CreatePrefEntries(userDef, ref prefEntryHolder.userDefList, userDefOrdering, filterState.PlayerPrefs);
             CreatePrefEntries(unityDef, ref prefEntryHolder.unityDefList, unityDefOrdering);
-            CreatePrefEntries(editorPrefsDef, ref prefEntryHolder.editorPrefsList, editorPrefsOrdering, true);
+            CreatePrefEntries(editorPrefsDef, ref prefEntryHolder.editorPrefsList, editorPrefsOrdering, filterState.EditorPrefs, true);
 
             // Clear cache
             userDefListCache = new SerializedProperty[prefEntryHolder.userDefList.Count];
             editorPrefsListCache = new SerializedProperty[prefEntryHolder.editorPrefsList.Count];
         }
 
-        private void CreatePrefEntries(string[] keySource, ref List<PreferenceEntry> listDest, ListOrderingState orderingState, bool useEditorPrefs = false)
+        private void CreatePrefEntries(string[] keySource, ref List<PreferenceEntry> listDest, ListOrderingState orderingState, PrefListFilterState listFilterState = null, bool useEditorPrefs = false)
         {
             if (!string.IsNullOrEmpty(searchTxt) && searchfield.SearchMode == MySearchField.SearchModePreferencesEditorWindow.Key)
             {
@@ -836,6 +1028,9 @@ namespace CCG.PlayerPrefsEditor
 
             foreach (string key in keySource)
             {
+                if (!IsKeyAllowedByFilter(key, listFilterState))
+                    continue;
+
                 var entry = new PreferenceEntry();
                 entry.m_key = key;
 
@@ -917,6 +1112,36 @@ namespace CCG.PlayerPrefsEditor
             }
 
             SortPrefEntries(listDest, orderingState);
+        }
+
+        private bool IsKeyAllowedByFilter(string key, PrefListFilterState listFilterState)
+        {
+            if (listFilterState == null)
+                return true;
+
+            List<string> includeValues = GetActiveFilterValues(listFilterState.IncludeFilter);
+            List<string> excludeValues = GetActiveFilterValues(listFilterState.ExcludeFilter);
+
+            bool includeMatch = includeValues.Count == 0 || includeValues.Any((value) => KeyMatchesFilterValue(key, value));
+            bool excludeMatch = excludeValues.Any((value) => KeyMatchesFilterValue(key, value));
+
+            return includeMatch && !excludeMatch;
+        }
+
+        private List<string> GetActiveFilterValues(FilterListState filterListState)
+        {
+            if (filterListState == null || !filterListState.Active || filterListState.Entries == null)
+                return new List<string>();
+
+            return filterListState.Entries
+                .Where((entry) => entry != null && entry.Active && !string.IsNullOrEmpty(entry.Value))
+                .Select((entry) => entry.Value)
+                .ToList();
+        }
+
+        private bool KeyMatchesFilterValue(string key, string filterValue)
+        {
+            return key.IndexOf(filterValue, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void SortPrefEntries(List<PreferenceEntry> entries, ListOrderingState orderingState)
