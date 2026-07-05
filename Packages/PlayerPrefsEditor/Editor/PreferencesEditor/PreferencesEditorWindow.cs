@@ -169,7 +169,7 @@ namespace CCG.PlayerPrefsEditor
         private readonly List<TextValidator> editorPrefKeyValidatorList = new List<TextValidator>()
         {
             new TextValidator(TextValidator.ErrorType.Error, @"Invalid character detected. Only letters, numbers, space and ,.;:<>_|!§$%&/()=?*+~#-]+$ are allowed", @"(^$)|(^[a-zA-Z0-9 ,.;:<>_|!§$%&/()=?*+~#-]+$)"),
-            new TextValidator(TextValidator.ErrorType.Warning, @"The given key already exist. The existing entry would be overwritten!", (key) => { return !EditorPrefs.HasKey(key); })
+            new TextValidator(TextValidator.ErrorType.Warning, @"The given key already exist. The existing entry would be overwritten!", (key) => { return !EditorPrefs.HasKey(StripEditorPrefsHashSuffix(key)); })
         };
 
 #if UNITY_EDITOR_LINUX
@@ -542,20 +542,21 @@ namespace CCG.PlayerPrefsEditor
                 if (EditorGUI.EndChangeCheck())
                 {
                     editorPrefsAccessor.IgnoreNextChange();
+                    string prefKey = StripEditorPrefsHashSuffix(key.stringValue);
 
                     switch ((PreferenceEntry.PrefTypes)type.enumValueIndex)
                     {
                         case PreferenceEntry.PrefTypes.Float:
-                            EditorPrefs.SetFloat(key.stringValue, value.floatValue);
+                            EditorPrefs.SetFloat(prefKey, value.floatValue);
                             break;
                         case PreferenceEntry.PrefTypes.Int:
-                            EditorPrefs.SetInt(key.stringValue, value.intValue);
+                            EditorPrefs.SetInt(prefKey, value.intValue);
                             break;
                         case PreferenceEntry.PrefTypes.String:
-                            EditorPrefs.SetString(key.stringValue, value.stringValue);
+                            EditorPrefs.SetString(prefKey, value.stringValue);
                             break;
                         case PreferenceEntry.PrefTypes.Bool:
-                            EditorPrefs.SetBool(key.stringValue, value.boolValue);
+                            EditorPrefs.SetBool(prefKey, value.boolValue);
                             break;
                     }
                 }
@@ -588,23 +589,24 @@ namespace CCG.PlayerPrefsEditor
                         TextFieldDialog.OpenDialog("Create new editor property", "Key for the new editor property:", editorPrefKeyValidatorList, (key) => {
 
                             editorPrefsAccessor.IgnoreNextChange();
+                            string prefKey = StripEditorPrefsHashSuffix(key);
 
                             switch (type)
                             {
                                 case PreferenceEntry.PrefTypes.Float:
-                                    EditorPrefs.SetFloat(key, 0.0f);
+                                    EditorPrefs.SetFloat(prefKey, 0.0f);
 
                                     break;
                                 case PreferenceEntry.PrefTypes.Int:
-                                    EditorPrefs.SetInt(key, 0);
+                                    EditorPrefs.SetInt(prefKey, 0);
 
                                     break;
                                 case PreferenceEntry.PrefTypes.String:
-                                    EditorPrefs.SetString(key, string.Empty);
+                                    EditorPrefs.SetString(prefKey, string.Empty);
 
                                     break;
                                 case PreferenceEntry.PrefTypes.Bool:
-                                    EditorPrefs.SetBool(key, false);
+                                    EditorPrefs.SetBool(prefKey, false);
 
                                     break;
                             }
@@ -963,6 +965,24 @@ namespace CCG.PlayerPrefsEditor
             };
         }
 
+        private static string StripEditorPrefsHashSuffix(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+                return key;
+
+            int hashIndex = key.LastIndexOf("_h", StringComparison.Ordinal);
+            if (hashIndex <= 0 || hashIndex + 2 >= key.Length)
+                return key;
+
+            for (int i = hashIndex + 2; i < key.Length; i++)
+            {
+                if (!char.IsDigit(key[i]))
+                    return key;
+            }
+
+            return key.Substring(0, hashIndex);
+        }
+
         private void ApplyImportedPrefEntry(bool useEditorPrefs, PrefExportEntry entry)
         {
             if (entry == null || string.IsNullOrEmpty(entry.Key))
@@ -980,20 +1000,22 @@ namespace CCG.PlayerPrefsEditor
 
             if (useEditorPrefs)
             {
+                string prefKey = StripEditorPrefsHashSuffix(entry.Key);
+
                 switch (prefType)
                 {
                     case PreferenceEntry.PrefTypes.Float:
-                        EditorPrefs.SetFloat(entry.Key, entry.FloatValue);
+                        EditorPrefs.SetFloat(prefKey, entry.FloatValue);
                         break;
                     case PreferenceEntry.PrefTypes.Int:
-                        EditorPrefs.SetInt(entry.Key, entry.IntValue);
+                        EditorPrefs.SetInt(prefKey, entry.IntValue);
                         break;
                     case PreferenceEntry.PrefTypes.Bool:
-                        EditorPrefs.SetBool(entry.Key, entry.BoolValue);
+                        EditorPrefs.SetBool(prefKey, entry.BoolValue);
                         break;
                     case PreferenceEntry.PrefTypes.String:
                     default:
-                        EditorPrefs.SetString(entry.Key, entry.StringValue ?? string.Empty);
+                        EditorPrefs.SetString(prefKey, entry.StringValue ?? string.Empty);
                         break;
                 }
                 return;
