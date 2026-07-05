@@ -82,10 +82,40 @@ namespace CCG.PlayerPrefsEditor
         {
             public PrefListFilterState PlayerPrefs = new PrefListFilterState();
             public PrefListFilterState EditorPrefs = new PrefListFilterState();
+            public PrefSectionUiState PlayerPrefsUi = new PrefSectionUiState();
+            public PrefSectionUiState EditorPrefsUi = new PrefSectionUiState();
+        }
+
+        [Serializable]
+        private class PrefSectionUiState
+        {
+            public bool EditPathActive = false;
+            public bool ShowAdvancedFilters = false;
+            public string PathOverride = string.Empty;
+        }
+
+        [Serializable]
+        private class PrefExportData
+        {
+            public string Kind;
+            public List<PrefExportEntry> Entries = new List<PrefExportEntry>();
+        }
+
+        [Serializable]
+        private class PrefExportEntry
+        {
+            public string Key;
+            public string Type;
+            public string StringValue;
+            public int IntValue;
+            public float FloatValue;
+            public bool BoolValue;
         }
 
         private static string pathToPrefs = String.Empty;
         private static string pathToEditorPrefs = String.Empty;
+        private static string defaultPathToPrefs = String.Empty;
+        private static string defaultPathToEditorPrefs = String.Empty;
         private static string platformPathPrefix = @"~";
 
         private string[] userDef;
@@ -125,6 +155,8 @@ namespace CCG.PlayerPrefsEditor
         private bool updateView = false;
         private bool monitoring = false;
         private bool showLoadingIndicatorOverlay = false;
+        private string playerPrefsPathEditValue = string.Empty;
+        private string editorPrefsPathEditValue = string.Empty;
 
         private string FilterStateEditorPrefsKey => "CCG.PlayerPrefsEditor.RelativeSpliterPosition" + "_" + Application.identifier + "_filter_state";
 
@@ -160,26 +192,22 @@ namespace CCG.PlayerPrefsEditor
         private void OnEnable()
         {
 #if UNITY_EDITOR_WIN
-            pathToPrefs = @"SOFTWARE\Unity\UnityEditor\" + PlayerSettings.companyName + @"\" + PlayerSettings.productName;
-            pathToEditorPrefs = @"SOFTWARE\Unity Technologies\Unity Editor 5.x";
+            defaultPathToPrefs = @"SOFTWARE\Unity\UnityEditor\" + PlayerSettings.companyName + @"\" + PlayerSettings.productName;
+            defaultPathToEditorPrefs = @"SOFTWARE\Unity Technologies\Unity Editor 5.x";
             platformPathPrefix = @"<CurrentUser>";
-            entryAccessor = new WindowsPrefStorage(pathToPrefs);
-            editorPrefsAccessor = new WindowsPrefStorage(pathToEditorPrefs, false);
 #elif UNITY_EDITOR_OSX
-            pathToPrefs = @"Library/Preferences/unity." + MakeValidFileName(PlayerSettings.companyName) + "." + MakeValidFileName(PlayerSettings.productName) + ".plist";
-            pathToEditorPrefs = @"Library/Preferences/com.unity3d.UnityEditor5.x.plist";
-            entryAccessor = new MacPrefStorage(pathToPrefs);
-            entryAccessor.StartLoadingDelegate = () => { showLoadingIndicatorOverlay = true; };
-            entryAccessor.StopLoadingDelegate = () => { showLoadingIndicatorOverlay = false; };
-            editorPrefsAccessor = new MacPrefStorage(pathToEditorPrefs);
+            defaultPathToPrefs = @"Library/Preferences/unity." + MakeValidFileName(PlayerSettings.companyName) + "." + MakeValidFileName(PlayerSettings.productName) + ".plist";
+            defaultPathToEditorPrefs = @"Library/Preferences/com.unity3d.UnityEditor5.x.plist";
 #elif UNITY_EDITOR_LINUX
-            pathToPrefs = @".config/unity3d/" + MakeValidFileName(PlayerSettings.companyName) + "/" + MakeValidFileName(PlayerSettings.productName) + "/prefs";
-            pathToEditorPrefs = @".local/share/unity3d/prefs";
-            entryAccessor = new LinuxPrefStorage(pathToPrefs);
-            editorPrefsAccessor = new LinuxPrefStorage(pathToEditorPrefs);
+            defaultPathToPrefs = @".config/unity3d/" + MakeValidFileName(PlayerSettings.companyName) + "/" + MakeValidFileName(PlayerSettings.productName) + "/prefs";
+            defaultPathToEditorPrefs = @".local/share/unity3d/prefs";
 #endif
-            entryAccessor.PrefEntryChangedDelegate = () => { updateView = true; };
-            editorPrefsAccessor.PrefEntryChangedDelegate = () => { updateView = true; };
+            pathToPrefs = defaultPathToPrefs;
+            pathToEditorPrefs = defaultPathToEditorPrefs;
+
+            LoadFilterState();
+            ApplyStoredPathOverrides();
+            RebuildStorageAccessors();
 
             monitoring = EditorPrefs.GetBool("CCG.PlayerPrefsEditor.WatchingForChanges", true);
             if(monitoring)
@@ -190,7 +218,6 @@ namespace CCG.PlayerPrefsEditor
 
             searchfield = new MySearchField();
             searchfield.DropdownSelectionDelegate = () => { PrepareData(); };
-            LoadFilterState();
 
             // Fix for serialisation issue of static fields
             if (userDefList == null)
@@ -221,8 +248,8 @@ namespace CCG.PlayerPrefsEditor
 
         private void OnDisable()
         {
-            entryAccessor.StopMonitoring();
-            editorPrefsAccessor.StopMonitoring();
+            entryAccessor?.StopMonitoring();
+            editorPrefsAccessor?.StopMonitoring();
         }
 
         private void InitReorderedList()
@@ -619,6 +646,47 @@ namespace CCG.PlayerPrefsEditor
             EditorPrefs.SetString(FilterStateEditorPrefsKey, JsonUtility.ToJson(filterState, true));
         }
 
+        private void ApplyStoredPathOverrides()
+        {
+            if (!string.IsNullOrEmpty(filterState.PlayerPrefsUi.PathOverride))
+                pathToPrefs = filterState.PlayerPrefsUi.PathOverride;
+            if (!string.IsNullOrEmpty(filterState.EditorPrefsUi.PathOverride))
+                pathToEditorPrefs = filterState.EditorPrefsUi.PathOverride;
+
+            playerPrefsPathEditValue = pathToPrefs;
+            editorPrefsPathEditValue = pathToEditorPrefs;
+        }
+
+        private void RebuildStorageAccessors()
+        {
+            bool wasMonitoring = entryAccessor != null && entryAccessor.IsMonitoring();
+            bool editorWasMonitoring = editorPrefsAccessor != null && editorPrefsAccessor.IsMonitoring();
+
+            entryAccessor?.StopMonitoring();
+            editorPrefsAccessor?.StopMonitoring();
+
+#if UNITY_EDITOR_WIN
+            entryAccessor = new WindowsPrefStorage(pathToPrefs);
+            editorPrefsAccessor = new WindowsPrefStorage(pathToEditorPrefs, false);
+#elif UNITY_EDITOR_OSX
+            entryAccessor = new MacPrefStorage(pathToPrefs);
+            entryAccessor.StartLoadingDelegate = () => { showLoadingIndicatorOverlay = true; };
+            entryAccessor.StopLoadingDelegate = () => { showLoadingIndicatorOverlay = false; };
+            editorPrefsAccessor = new MacPrefStorage(pathToEditorPrefs);
+#elif UNITY_EDITOR_LINUX
+            entryAccessor = new LinuxPrefStorage(pathToPrefs);
+            editorPrefsAccessor = new LinuxPrefStorage(pathToEditorPrefs);
+#endif
+
+            entryAccessor.PrefEntryChangedDelegate = () => { updateView = true; };
+            editorPrefsAccessor.PrefEntryChangedDelegate = () => { updateView = true; };
+
+            if (wasMonitoring)
+                entryAccessor.StartMonitoring();
+            if (editorWasMonitoring)
+                editorPrefsAccessor.StartMonitoring();
+        }
+
         private PrefsFilterState CreateDefaultFilterState()
         {
             PrefsFilterState state = new PrefsFilterState();
@@ -647,6 +715,14 @@ namespace CCG.PlayerPrefsEditor
 
             EnsurePrefListFilterState(ref filterState.PlayerPrefs);
             EnsurePrefListFilterState(ref filterState.EditorPrefs);
+            EnsurePrefSectionUiState(ref filterState.PlayerPrefsUi);
+            EnsurePrefSectionUiState(ref filterState.EditorPrefsUi);
+        }
+
+        private void EnsurePrefSectionUiState(ref PrefSectionUiState state)
+        {
+            if (state == null)
+                state = new PrefSectionUiState();
         }
 
         private void EnsurePrefListFilterState(ref PrefListFilterState state)
@@ -689,15 +765,253 @@ namespace CCG.PlayerPrefsEditor
             }
         }
 
-        private void DrawPrefsPathField(string label, string path)
+        private void DrawPrefsPathField(string label, bool useEditorPrefs)
         {
+            PrefSectionUiState uiState = useEditorPrefs ? filterState.EditorPrefsUi : filterState.PlayerPrefsUi;
+            string currentPath = useEditorPrefs ? pathToEditorPrefs : pathToPrefs;
+            string editValue = useEditorPrefs ? editorPrefsPathEditValue : playerPrefsPathEditValue;
+
             GUILayout.BeginHorizontal();
 
             GUILayout.Box(ImageManager.GetOsIcon(), Styles.icon);
             GUILayout.Label(label, GUILayout.Width(70));
-            GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + path, GUILayout.MinWidth(200));
+
+            EditorGUI.BeginDisabledGroup(!uiState.EditPathActive);
+            string nextEditValue = GUILayout.TextField(platformPathPrefix + Path.DirectorySeparatorChar + editValue, GUILayout.MinWidth(200));
+            EditorGUI.EndDisabledGroup();
+
+            if (uiState.EditPathActive)
+                SetPathEditValue(useEditorPrefs, StripPlatformPathPrefix(nextEditValue));
+            else
+                SetPathEditValue(useEditorPrefs, currentPath);
+
+            DrawSectionButtons(useEditorPrefs, uiState);
 
             GUILayout.EndHorizontal();
+        }
+
+        private void DrawSectionButtons(bool useEditorPrefs, PrefSectionUiState uiState)
+        {
+            EditorGUIUtility.SetIconSize(new Vector2(14.0f, 14.0f));
+
+            if (uiState.EditPathActive)
+            {
+                if (GUILayout.Button(new GUIContent(ImageManager.CancelIcon, "Revert path"), EditorStyles.toolbarButton, GUILayout.Width(22.0f)))
+                {
+                    uiState.EditPathActive = false;
+                    SetPathEditValue(useEditorPrefs, useEditorPrefs ? pathToEditorPrefs : pathToPrefs);
+                    SaveFilterState();
+                    GUIUtility.ExitGUI();
+                }
+            }
+
+            Texture2D editIcon = uiState.EditPathActive ? ImageManager.EditFilledIcon : ImageManager.EditIcon;
+            string editTooltip = uiState.EditPathActive ? "Apply path" : "Edit path";
+            if (GUILayout.Button(new GUIContent(editIcon, editTooltip), EditorStyles.toolbarButton, GUILayout.Width(22.0f)))
+            {
+                if (uiState.EditPathActive)
+                    ApplyPathEdit(useEditorPrefs);
+                else
+                {
+                    uiState.EditPathActive = true;
+                    SetPathEditValue(useEditorPrefs, useEditorPrefs ? pathToEditorPrefs : pathToPrefs);
+                    SaveFilterState();
+                }
+                GUIUtility.ExitGUI();
+            }
+
+            Texture2D filterIcon = uiState.ShowAdvancedFilters ? ImageManager.FilterFilledIcon : ImageManager.FilterBorderIcon;
+            string filterTooltip = uiState.ShowAdvancedFilters ? "Hide advanced filters" : "Show advanced filters";
+            if (GUILayout.Button(new GUIContent(filterIcon, filterTooltip), EditorStyles.toolbarButton, GUILayout.Width(22.0f)))
+            {
+                uiState.ShowAdvancedFilters = !uiState.ShowAdvancedFilters;
+                SaveFilterState();
+                GUIUtility.ExitGUI();
+            }
+
+            if (GUILayout.Button(new GUIContent(ImageManager.ImportIcon, "Import prefs from JSON template file"), EditorStyles.toolbarButton, GUILayout.Width(22.0f)))
+            {
+                ImportPrefsFromJsonTemplate(useEditorPrefs);
+                GUIUtility.ExitGUI();
+            }
+
+            if (GUILayout.Button(new GUIContent(ImageManager.ExportIcon, "Export prefs to JSON template file"), EditorStyles.toolbarButton, GUILayout.Width(22.0f)))
+            {
+                ExportPrefsAsJson(useEditorPrefs, true);
+                GUIUtility.ExitGUI();
+            }
+
+            EditorGUIUtility.SetIconSize(new Vector2(0.0f, 0.0f));
+        }
+
+        private void SetPathEditValue(bool useEditorPrefs, string value)
+        {
+            if (useEditorPrefs)
+                editorPrefsPathEditValue = value;
+            else
+                playerPrefsPathEditValue = value;
+        }
+
+        private string StripPlatformPathPrefix(string value)
+        {
+            string prefix = platformPathPrefix + Path.DirectorySeparatorChar;
+            if (!string.IsNullOrEmpty(value) && value.StartsWith(prefix))
+                return value.Substring(prefix.Length);
+
+            return value;
+        }
+
+        private void ApplyPathEdit(bool useEditorPrefs)
+        {
+            PrefSectionUiState uiState = useEditorPrefs ? filterState.EditorPrefsUi : filterState.PlayerPrefsUi;
+            string nextPath = useEditorPrefs ? editorPrefsPathEditValue : playerPrefsPathEditValue;
+
+            if (useEditorPrefs)
+            {
+                pathToEditorPrefs = nextPath;
+                uiState.PathOverride = (nextPath == defaultPathToEditorPrefs) ? string.Empty : nextPath;
+            }
+            else
+            {
+                pathToPrefs = nextPath;
+                uiState.PathOverride = (nextPath == defaultPathToPrefs) ? string.Empty : nextPath;
+            }
+
+            uiState.EditPathActive = false;
+            SaveFilterState();
+            RebuildStorageAccessors();
+            PrepareData();
+        }
+
+        private void ExportPrefsAsJson(bool useEditorPrefs, bool asTemplate)
+        {
+            string defaultName = GetExportFileName(useEditorPrefs, asTemplate);
+            string directory = asTemplate ? EnsureTemplateDirectory() : Application.dataPath;
+            string path = EditorUtility.SaveFilePanel("Export prefs as JSON", directory, defaultName, "json");
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            PrefExportData exportData = BuildExportData(useEditorPrefs);
+            File.WriteAllText(path, JsonUtility.ToJson(exportData, true));
+            AssetDatabase.Refresh();
+        }
+
+        private void ImportPrefsFromJsonTemplate(bool useEditorPrefs)
+        {
+            string templateDirectory = GetTemplateDirectory();
+            string directory = Directory.Exists(templateDirectory) ? templateDirectory : Application.dataPath;
+            string path = EditorUtility.OpenFilePanel("Import prefs from JSON template file", directory, "json");
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            PrefExportData importData = JsonUtility.FromJson<PrefExportData>(File.ReadAllText(path));
+            if (importData == null || importData.Entries == null)
+                return;
+
+            foreach (PrefExportEntry entry in importData.Entries)
+                ApplyImportedPrefEntry(useEditorPrefs, entry);
+
+            if (!useEditorPrefs)
+                PlayerPrefs.Save();
+
+            PrepareData();
+        }
+
+        private string GetExportFileName(bool useEditorPrefs, bool asTemplate)
+        {
+            string prefix = useEditorPrefs ? "editor-prefs" : "player-prefs";
+            string templatePart = asTemplate ? "_template" : string.Empty;
+            return prefix + templatePart + "_" + DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+        }
+
+        private string GetTemplateDirectory()
+        {
+            return Path.Combine(Application.dataPath, "Prefs", "Templates");
+        }
+
+        private string EnsureTemplateDirectory()
+        {
+            string directory = GetTemplateDirectory();
+            if (!Directory.Exists(directory))
+                Directory.CreateDirectory(directory);
+
+            return directory;
+        }
+
+        private PrefExportData BuildExportData(bool useEditorPrefs)
+        {
+            PrefExportData data = new PrefExportData();
+            data.Kind = useEditorPrefs ? "EditorPrefs" : "PlayerPrefs";
+
+            List<PreferenceEntry> source = useEditorPrefs ? prefEntryHolder.editorPrefsList : prefEntryHolder.userDefList;
+            foreach (PreferenceEntry prefEntry in source)
+                data.Entries.Add(CreateExportEntry(prefEntry));
+
+            return data;
+        }
+
+        private PrefExportEntry CreateExportEntry(PreferenceEntry prefEntry)
+        {
+            return new PrefExportEntry()
+            {
+                Key = prefEntry.m_key,
+                Type = prefEntry.m_typeSelection.ToString(),
+                StringValue = prefEntry.m_strValue,
+                IntValue = prefEntry.m_intValue,
+                FloatValue = prefEntry.m_floatValue,
+                BoolValue = prefEntry.m_boolValue
+            };
+        }
+
+        private void ApplyImportedPrefEntry(bool useEditorPrefs, PrefExportEntry entry)
+        {
+            if (entry == null || string.IsNullOrEmpty(entry.Key))
+                return;
+
+            PreferenceEntry.PrefTypes prefType = PreferenceEntry.PrefTypes.String;
+            try
+            {
+                prefType = (PreferenceEntry.PrefTypes)Enum.Parse(typeof(PreferenceEntry.PrefTypes), entry.Type);
+            }
+            catch
+            {
+                prefType = PreferenceEntry.PrefTypes.String;
+            }
+
+            if (useEditorPrefs)
+            {
+                switch (prefType)
+                {
+                    case PreferenceEntry.PrefTypes.Float:
+                        EditorPrefs.SetFloat(entry.Key, entry.FloatValue);
+                        break;
+                    case PreferenceEntry.PrefTypes.Int:
+                        EditorPrefs.SetInt(entry.Key, entry.IntValue);
+                        break;
+                    case PreferenceEntry.PrefTypes.Bool:
+                        EditorPrefs.SetBool(entry.Key, entry.BoolValue);
+                        break;
+                    case PreferenceEntry.PrefTypes.String:
+                    default:
+                        EditorPrefs.SetString(entry.Key, entry.StringValue ?? string.Empty);
+                        break;
+                }
+                return;
+            }
+
+            switch (prefType)
+            {
+                case PreferenceEntry.PrefTypes.Float:
+                    PlayerPrefs.SetFloat(entry.Key, entry.FloatValue);
+                    break;
+                case PreferenceEntry.PrefTypes.Int:
+                    PlayerPrefs.SetInt(entry.Key, entry.IntValue);
+                    break;
+                case PreferenceEntry.PrefTypes.String:
+                default:
+                    PlayerPrefs.SetString(entry.Key, entry.StringValue ?? string.Empty);
+                    break;
+            }
         }
 
         private void DrawFilterList(string title, FilterListState filterListState)
@@ -949,16 +1263,18 @@ namespace CCG.PlayerPrefsEditor
 
                 GUILayout.EndHorizontal();
 
-                DrawPrefsPathField("PlayerPrefs", pathToPrefs);
+                DrawPrefsPathField("PlayerPrefs", false);
 
                 scrollPos = GUILayout.BeginScrollView(scrollPos);
-                DrawFilterControls(filterState.PlayerPrefs);
+                if (filterState.PlayerPrefsUi.ShowAdvancedFilters)
+                    DrawFilterControls(filterState.PlayerPrefs);
                 serializedObject.Update();
                 userDefList.DoLayoutList();
                 serializedObject.ApplyModifiedProperties();
 
-                DrawPrefsPathField("EditorPrefs", pathToEditorPrefs);
-                DrawFilterControls(filterState.EditorPrefs);
+                DrawPrefsPathField("EditorPrefs", true);
+                if (filterState.EditorPrefsUi.ShowAdvancedFilters)
+                    DrawFilterControls(filterState.EditorPrefs);
                 serializedObject.Update();
                 editorPrefsList.DoLayoutList();
                 serializedObject.ApplyModifiedProperties();
