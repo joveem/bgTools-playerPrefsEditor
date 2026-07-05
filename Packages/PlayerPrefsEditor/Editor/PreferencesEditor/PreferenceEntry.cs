@@ -9,7 +9,8 @@ namespace CCG.PlayerPrefsEditor
         {
             String = 0,
             Int = 1,
-            Float = 2
+            Float = 2,
+            Bool = 3
         }
 
         public PrefTypes m_typeSelection;
@@ -19,6 +20,7 @@ namespace CCG.PlayerPrefsEditor
         public string m_strValue;
         public int m_intValue;
         public float m_floatValue;
+        public bool m_boolValue;
 
         public string ValueAsString()
         {
@@ -30,6 +32,8 @@ namespace CCG.PlayerPrefsEditor
                     return m_intValue.ToString();
                 case PrefTypes.Float:
                     return m_floatValue.ToString();
+                case PrefTypes.Bool:
+                    return m_boolValue.ToString();
                 default:
                     return string.Empty;
             }

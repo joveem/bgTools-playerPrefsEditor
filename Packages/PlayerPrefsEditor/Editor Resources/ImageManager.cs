@@ -221,6 +221,97 @@ namespace CCG.Utils
                 return sortDescending;
             }
         }
+
+        private static Texture2D cancelIcon;
+        public static Texture2D CancelIcon
+        {
+            get
+            {
+                if (cancelIcon == null)
+                {
+                    cancelIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "cancel_icon.png", typeof(Texture2D));
+                }
+                return cancelIcon;
+            }
+        }
+
+        private static Texture2D editIcon;
+        public static Texture2D EditIcon
+        {
+            get
+            {
+                if (editIcon == null)
+                {
+                    editIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "edit_icon.png", typeof(Texture2D));
+                }
+                return editIcon;
+            }
+        }
+
+        private static Texture2D editFilledIcon;
+        public static Texture2D EditFilledIcon
+        {
+            get
+            {
+                if (editFilledIcon == null)
+                {
+                    editFilledIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "edit_filled_icon.png", typeof(Texture2D));
+                }
+                return editFilledIcon;
+            }
+        }
+
+        private static Texture2D exportIcon;
+        public static Texture2D ExportIcon
+        {
+            get
+            {
+                if (exportIcon == null)
+                {
+                    exportIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "export_icon.png", typeof(Texture2D));
+                }
+                return exportIcon;
+            }
+        }
+
+        private static Texture2D filterBorderIcon;
+        public static Texture2D FilterBorderIcon
+        {
+            get
+            {
+                if (filterBorderIcon == null)
+                {
+                    filterBorderIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "filter_border_icon.png", typeof(Texture2D));
+                }
+                return filterBorderIcon;
+            }
+        }
+
+        private static Texture2D filterFilledIcon;
+        public static Texture2D FilterFilledIcon
+        {
+            get
+            {
+                if (filterFilledIcon == null)
+                {
+                    filterFilledIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "filter_filled_icon.png", typeof(Texture2D));
+                }
+                return filterFilledIcon;
+            }
+        }
+
+        private static Texture2D importIcon;
+        public static Texture2D ImportIcon
+        {
+            get
+            {
+                if (importIcon == null)
+                {
+                    importIcon = (Texture2D)AssetDatabase.LoadAssetAtPath(GetAssetDir() + "import_icon.png", typeof(Texture2D));
+                }
+                return importIcon;
+            }
+        }
     }
 }
 #endif

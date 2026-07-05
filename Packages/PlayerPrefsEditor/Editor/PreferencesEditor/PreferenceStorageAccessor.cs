@@ -56,7 +56,7 @@ namespace CCG.PlayerPrefsEditor
                 return;
             }
 
-            PrefEntryChangedDelegate();
+            PrefEntryChangedDelegate?.Invoke();
         }
 
         public Action StartLoadingDelegate;
@@ -72,9 +72,11 @@ namespace CCG.PlayerPrefsEditor
     public class WindowsPrefStorage : PreferanceStorageAccessor
     {
         RegistryMonitor monitor;
+        private bool stripPlayerPrefHash;
 
-        public WindowsPrefStorage(string pathToPrefs) : base(pathToPrefs)
+        public WindowsPrefStorage(string pathToPrefs, bool stripPlayerPrefHash = true) : base(pathToPrefs)
         {
+            this.stripPlayerPrefHash = stripPlayerPrefHash;
             monitor = new RegistryMonitor(RegistryHive.CurrentUser, prefPath);
             monitor.RegChanged += new EventHandler(OnRegChanged);
         }
@@ -98,9 +100,16 @@ namespace CCG.PlayerPrefsEditor
             }
 
             // Clean <key>_h3320113488 nameing
-            cachedData = cachedData.Select((key) => { return key.Substring(0, key.LastIndexOf("_h", StringComparison.Ordinal)); }).ToArray();
+            if (stripPlayerPrefHash)
+            {
+                cachedData = cachedData.Select((key) =>
+                {
+                    int hashIndex = key.LastIndexOf("_h", StringComparison.Ordinal);
+                    return (hashIndex > 0) ? key.Substring(0, hashIndex) : key;
+                }).ToArray();
 
-            EncodeAnsiInPlace();
+                EncodeAnsiInPlace();
+            }
         }
 
         public override void StartMonitoring()
@@ -212,11 +221,11 @@ namespace CCG.PlayerPrefsEditor
                 // Check if tmp PlayerPrefs file exist
                 if (info.FullName.Contains(prefsFileNameWithoutExtension) && !info.FullName.EndsWith(".plist"))
                 {
-                    StartLoadingDelegate();
+                    StartLoadingDelegate?.Invoke();
                     return;
                 }
             }
-            StopLoadingDelegate();
+            StopLoadingDelegate?.Invoke();
 
             cachedData = new string[0];
 

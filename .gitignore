@@ -38,3 +38,9 @@ ExportedObj/
 sysinfo.txt
 
 # End of https://www.gitignore.io/api/unity
+
+# all Unity3D Generated meta files outinside package folder
+*.meta
+
+# Unity3D Generated meta files inside package folder
+!Packages/PlayerPrefsEditor/**/*.meta

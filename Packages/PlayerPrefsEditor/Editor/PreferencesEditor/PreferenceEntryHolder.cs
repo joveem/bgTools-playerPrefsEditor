@@ -10,6 +10,7 @@ namespace CCG.PlayerPrefsEditor
     {
         public List<PreferenceEntry> userDefList;
         public List<PreferenceEntry> unityDefList;
+        public List<PreferenceEntry> editorPrefsList;
 
         private void OnEnable()
         {
@@ -18,6 +19,8 @@ namespace CCG.PlayerPrefsEditor
                 userDefList = new List<PreferenceEntry>();
             if (unityDefList == null)
                 unityDefList = new List<PreferenceEntry>();
+            if (editorPrefsList == null)
+                editorPrefsList = new List<PreferenceEntry>();
         }
 
         public void ClearLists()
@@ -26,6 +29,8 @@ namespace CCG.PlayerPrefsEditor
                 userDefList.Clear();
             if (unityDefList != null)
                 unityDefList.Clear();
+            if (editorPrefsList != null)
+                editorPrefsList.Clear();
         }
     }
 }
